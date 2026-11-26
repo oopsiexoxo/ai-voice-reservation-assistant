@@ -1,0 +1,73 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Table reservations</title>
+<style>
+ body{font-family:system-ui,sans-serif;max-width:1000px;margin:20px auto;padding:0 12px}
+ .row{display:flex;align-items:center;margin:4px 0}
+ .label{width:120px;font-size:14px}
+ .cells{display:flex;flex:1}
+ .cell{flex:1;height:26px;border:1px solid #fff;background:#cfe8cf}
+ .cell.busy{background:#e08a8a}
+ .hdr .cell{background:none;border:0;height:auto;font-size:10px}
+ form{display:grid;gap:8px;max-width:360px;margin-top:20px}
+ .key span{display:inline-block;width:14px;height:14px;margin:0 4px 0 12px;vertical-align:middle}
+</style></head><body>
+<h1>Table availability</h1>
+<label>Date <input type="date" id="date"></label>
+<label style="margin-left:16px">Staff PIN <input type="password" id="pin" placeholder="optional"></label>
+<p class="key"><span style="background:#cfe8cf"></span>Free<span style="background:#e08a8a"></span>Booked (each booking = 90 min)</p>
+<div id="grid"></div>
+
+<h2>Book a table</h2>
+<form id="f">
+ <input id="name" placeholder="Name" required>
+ <input id="phone" placeholder="Phone (optional)">
+ <input id="time" type="time" required>
+ <input id="size" type="number" min="1" max="8" value="2" required>
+ <button>Book</button>
+ <div id="msg"></div>
+</form>
+
+<script>
+const H0=11, H1=22, SLOTS=(H1-H0)*2, $=id=>document.getElementById(id);
+const toMin=s=>{const [h,m]=s.split(":");return +h*60+ +m;};
+$("date").value=new Date().toLocaleDateString("en-CA");
+
+async function load(){
+  const r=await fetch("/api/day?date="+$("date").value,{headers:{"X-Staff-Pin":$("pin").value}});
+  const d=await r.json(), g=$("grid"); g.textContent="";
+  const hdr=document.createElement("div"); hdr.className="row hdr";
+  hdr.append(Object.assign(document.createElement("div"),{className:"label"}));
+  const hc=document.createElement("div"); hc.className="cells";
+  for(let i=0;i<SLOTS;i++){const c=document.createElement("div");c.className="cell";if(i%2==0)c.textContent=H0+i/2;hc.appendChild(c);}
+  hdr.appendChild(hc); g.appendChild(hdr);
+  d.tables.forEach(t=>{
+    const row=document.createElement("div"); row.className="row";
+    const l=document.createElement("div"); l.className="label"; l.textContent=t.name+" ("+t.capacity+" seats)";
+    const cells=document.createElement("div"); cells.className="cells";
+    for(let i=0;i<SLOTS;i++){
+      const m=H0*60+i*30, c=document.createElement("div"); c.className="cell";
+      const b=t.bookings.find(b=>toMin(b.start)<=m && m<toMin(b.end));
+      if(b){ c.classList.add("busy");
+        c.title=b.name? b.name+" ("+b.party_size+") #"+b.id+" - click to cancel" : "Booked";
+        if(b.name) c.onclick=()=>cancelBooking(b); }
+      cells.appendChild(c);
+    }
+    row.append(l,cells); g.appendChild(row);
+  });
+}
+async function cancelBooking(b){
+  if(!confirm("Cancel booking #"+b.id+" for "+b.name+"?")) return;
+  await fetch("/api/cancel/"+b.id,{method:"POST",headers:{"X-Staff-Pin":$("pin").value}});
+  load();
+}
+$("f").onsubmit=async e=>{
+  e.preventDefault();
+  const body={name:$("name").value,phone:$("phone").value,date:$("date").value,
+              time:$("time").value,party_size:+$("size").value};
+  const r=await fetch("/api/book",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+  const d=await r.json(); $("msg").textContent=d.message||"Error"; load();
+};
+$("date").onchange=load; $("pin").onchange=load; load();
+</script></body></html>
